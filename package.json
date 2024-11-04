@@ -1,0 +1,10 @@
+{
+	"dependencies": {
+		"@mintlify/prebuild": "^1.0.260",
+		"@mintlify/previewing": "^4.0.261",
+		"fs-extra": "^11.2.0",
+		"got": "^14.4.4",
+		"ora": "^8.1.1",
+		"tar": "^7.4.3"
+	}
+}
