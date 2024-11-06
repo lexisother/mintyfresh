@@ -1,9 +1,4 @@
-// Efforts were to statically build the docs and host them manually.
-// Unfortunately impossible with the current Mintlify client.
-// Seems all I can do is just host the dev server in production if I really want to.
-
-// https://www.npmjs.com/package/@mintlify/previewing
-// https://www.npmjs.com/package/@mintlify/prebuild
+// Using a public repository containing Mintlify's old client. Apparently version 0.0.9.
 
 import Ora from "ora";
 import fse, { pathExists } from "fs-extra";
@@ -13,19 +8,25 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 import * as tar from "tar";
 import {
-  CLIENT_PATH,
   CMD_EXEC_PATH,
   DOT_MINTLIFY,
   MINT_PATH,
-  NEXT_SIDE_EFFECT_PATH,
   NEXT_PROPS_PATH,
   NEXT_PUBLIC_PATH,
-  TARGET_MINT_VERSION,
   TAR_PATH,
-  TAR_URL,
   VERSION_PATH,
 } from "@mintlify/previewing/dist/constants.js";
-import { prebuild } from "@mintlify/prebuild";
+
+const CLIENT_PATH = path.join(MINT_PATH, "client");
+const NEXT_DIST_SERVER_PATH = path.join(
+  CLIENT_PATH,
+  "node_modules",
+  "next",
+  "dist",
+  "server"
+);
+const NEXT_SIDE_EFFECT_PATH = path.join(NEXT_DIST_SERVER_PATH, "next.js");
+const TARGET_MINT_VERSION = "0.0.9";
 
 function buildLogger(startText = "") {
   return Ora().start(startText);
@@ -35,25 +36,55 @@ function buildLogger(startText = "") {
  * @param {import('ora').Ora} logger
  */
 async function downloadTargetMint(logger) {
+  await fse.ensureDir(MINT_PATH);
   fse.emptyDirSync(MINT_PATH);
+
   logger.text = "Downloading Mintlify framework...";
-  await pipeline(got.stream(TAR_URL), fse.createWriteStream(TAR_PATH));
-  logger.text = "Extracting Mintlify framework...";
+  await pipeline(
+    got.stream("https://github.com/lleyton/mint/tarball/ashen"),
+    fse.createWriteStream(TAR_PATH)
+  );
+  logger.succeed("Downloaded Mintlify framework!");
+
+  logger.start("Extracting Mintlify framework...");
   tar.x({
     sync: true,
     file: TAR_PATH,
-    cwd: DOT_MINTLIFY,
+    cwd: MINT_PATH,
+    stripComponents: 1,
   });
   fse.removeSync(TAR_PATH);
+
   fse.writeFileSync(VERSION_PATH, TARGET_MINT_VERSION);
 
-  fse.removeSync(path.join(MINT_PATH, "packages"));
-  fse.removeSync(path.join(CLIENT_PATH, "src", "components", "Code"));
+  const eslintConfig = JSON.parse(
+    fse.readFileSync(path.join(CLIENT_PATH, ".eslintrc.json")).toString()
+  );
+  eslintConfig.rules = {
+    "@typescript-eslint/no-explicit-any": "off",
+    "unused-imports/no-unused-vars": "off",
+  };
+  fse.writeFileSync(
+    path.join(CLIENT_PATH, ".eslintrc.json"),
+    JSON.stringify(eslintConfig)
+  );
 
-  execSync("npm i --force --ignore-scripts mermaid", {
-    cwd: MINT_PATH,
+  logger.succeed("Extracted Mintlify framework!");
+
+  // fse.removeSync(path.join(MINT_PATH, "packages"));
+  // fse.removeSync(path.join(CLIENT_PATH, "src", "components", "Code"));
+
+  execSync("yarn install", {
+    cwd: CLIENT_PATH,
     stdio: "inherit",
   });
+
+  execSync(`yarn preconfigure ${CMD_EXEC_PATH}`, {
+    cwd: CLIENT_PATH,
+    stdio: "inherit",
+  });
+
+  process.exit();
 }
 
 async function build() {
@@ -71,17 +102,6 @@ async function build() {
   fse.emptydirSync(NEXT_PUBLIC_PATH);
   fse.emptydirSync(NEXT_PROPS_PATH);
   process.chdir(CLIENT_PATH);
-
-  try {
-    await prebuild(CMD_EXEC_PATH);
-  } catch (err) {
-    const errorText =
-      err instanceof Error && err.message
-        ? err.message
-        : "Prebuild step failed";
-    logger.fail(errorText);
-    process.exit(1);
-  }
 
   const NEXT_BUILD_PATH = path.join(
     NEXT_SIDE_EFFECT_PATH,
